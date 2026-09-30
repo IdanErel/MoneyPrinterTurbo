@@ -385,6 +385,8 @@
     "Confirm Volcano Engine Seedance Charge Help": "Seedance klipleri tek tek gönderilir ve seslendirme süresini karşıladığında durur. Ark, gönderilen her üretim görevi için ücret alır.",
     "Confirm Volcano Engine Seedance Charge Required": "Videoyu oluşturmadan önce Volcano Engine Seedance üretim ücretini onaylayın.",
     "OpenAI Compatible Text-to-Image": "OpenAI Uyumlu Metinden Görüntüye",
+    "Gemini Text-to-Image": "Gemini Metinden Görüntüye",
+    "Please Enter the Gemini API Key": "Lütfen **Gemini API Anahtarını** Girin",
     "OpenAI Image Base URL": "OpenAI Uyumlu Görüntü Temel URL'si",
     "OpenAI Image API Key": "OpenAI Uyumlu Görüntü API Anahtarı",
     "OpenAI Image Model": "OpenAI Uyumlu Görüntü Modeli",

@@ -1760,7 +1760,9 @@ def gemini_tts(
         # 请求结束后释放 HTTP 连接，同时保留原有 PCM 转码和字幕时间轴逻辑。
         with genai.Client(api_key=api_key) as client:
             response = client.models.generate_content(
-                model="gemini-2.5-flash-preview-tts",
+                model=config.app.get(
+                    "gemini_tts_model_name", "gemini-2.5-flash-preview-tts"
+                ),
                 contents=text,
                 config=generation_config,
             )
@@ -1794,13 +1796,19 @@ def gemini_tts(
         
         # Gemini返回Linear PCM格式，按照文档参数解析
         try:
-            audio_segment = AudioSegment.from_file(
-                io.BytesIO(audio_bytes), 
-                format="raw",
-                frame_rate=24000,  # Gemini TTS默认采样率
-                channels=1,        # 单声道
-                sample_width=2     # 16-bit
-            )
+            # 较新的 Gemini TTS 模型直接返回带 RIFF 头的 WAV，而不是裸 PCM。
+            if audio_bytes[:4] == b"RIFF":
+                audio_segment = AudioSegment.from_file(
+                    io.BytesIO(audio_bytes), format="wav"
+                )
+            else:
+                audio_segment = AudioSegment.from_file(
+                    io.BytesIO(audio_bytes),
+                    format="raw",
+                    frame_rate=24000,  # Gemini TTS默认采样率
+                    channels=1,  # 单声道
+                    sample_width=2,  # 16-bit
+                )
         except Exception as e:
             logger.error(f"Failed to load PCM audio: {e}")
             return None

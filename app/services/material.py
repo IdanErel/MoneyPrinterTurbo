@@ -1667,6 +1667,163 @@ def generate_images_openai(
     return [item]
 
 
+GEMINI_IMAGE_DEFAULT_MODEL = "gemini-3.1-flash-image"
+GEMINI_IMAGE_DEFAULT_PROMPT_TEMPLATE = (
+    "Photorealistic cinematic still for a documentary video, showing: {term}. "
+    "Natural lighting, high detail. No text, captions or watermarks."
+)
+GEMINI_IMAGE_ASPECT_RATIOS = {
+    VideoAspect.portrait: "9:16",
+    VideoAspect.landscape: "16:9",
+    VideoAspect.square: "1:1",
+}
+GEMINI_IMAGE_MAX_ATTEMPTS = 3
+GEMINI_IMAGE_RETRY_BACKOFF_SECONDS = (5, 15)
+# 429 在免费额度为 0 时也会出现，但与 503 一样可能只是瞬时限流，统一退避重试。
+GEMINI_IMAGE_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+def is_gemini_image_enabled(app_config: dict | None = None) -> bool:
+    """Gemini 文生图复用 LLM 的 gemini_api_key，只要 key 已配置即可使用。"""
+    app_config = config.app if app_config is None else app_config
+    return bool(str(app_config.get("gemini_api_key", "") or "").strip())
+
+
+def _gemini_image_prompt(search_term: str) -> str:
+    """
+    与 openai_image 相同的模板语义，但默认带上写实纪录片风格。
+
+    Gemini 图像模型对裸关键词（如 "dvd"）容易生成与叙事无关的静物图，
+    默认模板把关键词放进完整的画面描述里，明显提升图文匹配度。
+    """
+    template = str(config.app.get("gemini_image_prompt_template", "") or "").strip()
+    if not template or "{term}" not in template:
+        template = GEMINI_IMAGE_DEFAULT_PROMPT_TEMPLATE
+    return template.replace("{term}", search_term)
+
+
+def _request_gemini_image(prompt: str, aspect: VideoAspect) -> tuple[bytes | None, str]:
+    """
+    调用 Gemini 原生 generateContent 接口生成一张图片。
+
+    Gemini 的 OpenAI 兼容 /images/generations 端点不支持 Gemini 图像模型，
+    因此这里直接使用项目已依赖的 google-genai SDK。计费安全与 openai_image
+    保持一致：服务端明确返回的 429/5xx 可以退避重试；网络中断等未确认状态
+    抛出 OpenAIImageUnconfirmedError 终止任务，避免重复计费。
+    """
+    from google import genai
+    from google.genai import errors as genai_errors
+    from google.genai import types
+
+    api_key = str(config.app.get("gemini_api_key", "") or "").strip()
+    model = (
+        str(config.app.get("gemini_image_model", "") or "").strip()
+        or GEMINI_IMAGE_DEFAULT_MODEL
+    )
+    generation_config = types.GenerateContentConfig(
+        response_modalities=["IMAGE"],
+        image_config=types.ImageConfig(
+            aspect_ratio=GEMINI_IMAGE_ASPECT_RATIOS.get(aspect, "1:1")
+        ),
+    )
+
+    failure_detail = "no request attempt was made"
+    for attempt in range(1, GEMINI_IMAGE_MAX_ATTEMPTS + 1):
+        try:
+            with genai.Client(api_key=api_key) as client:
+                response = client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=generation_config,
+                )
+        except genai_errors.APIError as e:
+            status = int(getattr(e, "code", 0) or 0)
+            failure_detail = _redact_secret(
+                f"HTTP {status}: {getattr(e, 'message', '') or e}", api_key
+            )
+            if (
+                status in GEMINI_IMAGE_RETRYABLE_STATUS_CODES
+                and attempt < GEMINI_IMAGE_MAX_ATTEMPTS
+            ):
+                backoff_seconds = GEMINI_IMAGE_RETRY_BACKOFF_SECONDS[
+                    min(attempt - 1, len(GEMINI_IMAGE_RETRY_BACKOFF_SECONDS) - 1)
+                ]
+                logger.warning(
+                    "gemini image request failed, retrying: "
+                    f"attempt={attempt}/{GEMINI_IMAGE_MAX_ATTEMPTS}, "
+                    f"next_retry_in={backoff_seconds}s, detail={failure_detail}"
+                )
+                time.sleep(backoff_seconds)
+                continue
+            return None, failure_detail
+        except Exception as e:
+            raise OpenAIImageUnconfirmedError(
+                "unconfirmed gemini image request (no retry to avoid double "
+                f"billing): {type(e).__name__}, "
+                f"detail={_redact_secret(str(e), api_key)}"
+            ) from e
+
+        candidates = getattr(response, "candidates", None) or []
+        content = getattr(candidates[0], "content", None) if candidates else None
+        for part in getattr(content, "parts", None) or []:
+            inline_data = getattr(part, "inline_data", None)
+            data = getattr(inline_data, "data", None) if inline_data else None
+            if data:
+                if isinstance(data, str):
+                    data = base64.b64decode(data)
+                if len(data) > OPENAI_IMAGE_MAX_BYTES:
+                    return None, "generated image exceeds the 25 MB response limit"
+                return bytes(data), ""
+        # 没有图片通常是内容策略拒绝；重发同样的提示词只会得到同样结果。
+        finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+        return None, f"response contained no image (finish_reason={finish_reason})"
+
+    return None, failure_detail
+
+
+def generate_images_gemini(
+    search_term: str,
+    minimum_duration: int,
+    video_aspect: VideoAspect = VideoAspect.portrait,
+    save_dir: str = "",
+) -> List[MaterialInfo]:
+    """
+    用 Gemini 图像模型为一个脚本关键词生成一张图片，签名与
+    generate_images_openai 一致，失败时返回空列表让上层跳过该关键词。
+    """
+    aspect = VideoAspect(video_aspect)
+    clip_duration = max(int(minimum_duration), 1)
+    logger.info(f"generating image via gemini: term={search_term!r}, aspect={aspect}")
+    image_bytes, failure_detail = _request_gemini_image(
+        _gemini_image_prompt(search_term), aspect
+    )
+    if image_bytes is None:
+        logger.error(
+            f"gemini image generation failed: term={search_term!r}, "
+            f"detail={failure_detail}"
+        )
+        return []
+
+    try:
+        image_path, width, height = _save_openai_image_file(image_bytes, save_dir)
+    except _OpenAIImageDecodeError as e:
+        logger.error(
+            "gemini image response is not a decodable image, skipping term: "
+            f"term={search_term!r}, error={type(e).__name__}, detail={e}"
+        )
+        return []
+    item = MaterialInfo()
+    item.provider = "gemini_image"
+    item.url = image_path
+    item.duration = clip_duration
+    item.source_info = {
+        "provider": "gemini_image",
+        "search_term": search_term,
+        "rendition": {"id": None, "width": width, "height": height},
+    }
+    return [item]
+
+
 def _render_openai_image_video(image_path: str, clip_duration: int) -> str:
     """
     把生成的图片渲染成 mp4 片段，复用 local 素材的"图片 → 动态片段"管线。
@@ -1691,9 +1848,11 @@ def _download_videos_openai_image_on_demand(
     audio_duration: float,
     max_clip_duration: int,
     material_directory: str,
+    generate_images: Callable[..., List[MaterialInfo]] | None = None,
+    provider: str = "openai_image",
 ) -> List[str]:
     """
-    按脚本片段顺序逐张生成 OpenAI 兼容文生图素材，凑够所需总时长立即停止。
+    按脚本片段顺序逐张生成文生图素材（OpenAI 兼容或 Gemini），凑够所需总时长立即停止。
 
     与 WaveSpeed 按需生成同一付费安全语义：文生图按张计费，先全量生成再
     挑选会为用不到的画面付费。每张图片生成后立即渲染成 mp4 片段并累计
@@ -1701,6 +1860,9 @@ def _download_videos_openai_image_on_demand(
     不再发起新的付费请求。明确拒绝的单张图片可跳过；请求结果不明、付费
     结果下载失败或本地渲染失败时必须终止任务，避免后续关键词再次计费。
     """
+    if generate_images is None:
+        # 调用时再解析，保证测试替身和运行时替换 generate_images_openai 生效。
+        generate_images = generate_images_openai
     if not material_directory:
         # 生成图片按任务计费且不可复用，默认落在任务目录便于追溯。
         material_directory = utils.task_dir(task_id)
@@ -1725,7 +1887,7 @@ def _download_videos_openai_image_on_demand(
 
     for search_term in search_terms:
         try:
-            items = generate_images_openai(
+            items = generate_images(
                 search_term=search_term,
                 minimum_duration=max_clip_duration,
                 video_aspect=video_aspect,
@@ -1750,7 +1912,7 @@ def _download_videos_openai_image_on_demand(
                 # 素材当作失败，更不能阻断视频生成。
                 logger.warning(
                     "failed to prepare generated material source record: "
-                    f"provider=openai_image, "
+                    f"provider={provider}, "
                     f"error={type(source_error).__name__}, detail={source_error}"
                 )
             total_duration += min(max_clip_duration, item.duration)
@@ -2095,6 +2257,18 @@ def download_videos(
             audio_duration=audio_duration,
             max_clip_duration=max_clip_duration,
             material_directory=material_directory,
+        )
+    if source == "gemini_image":
+        # 与 openai_image 共享按需付费语义，只替换单张图片的生成实现。
+        return _download_videos_openai_image_on_demand(
+            task_id=task_id,
+            search_terms=search_terms,
+            video_aspect=video_aspect,
+            audio_duration=audio_duration,
+            max_clip_duration=max_clip_duration,
+            material_directory=material_directory,
+            generate_images=generate_images_gemini,
+            provider="gemini_image",
         )
     if source == "openai_image":
         # 与 WaveSpeed 相同的按需付费语义：文生图按张计费，逐段生成、凑够

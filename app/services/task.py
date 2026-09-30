@@ -317,12 +317,27 @@ def generate_terms(task_id, params, video_script):
         # 开启素材按文案顺序匹配后，关键词本身也必须按脚本叙事顺序生成；
         # 否则后续即使顺序下载和顺序拼接，也只能复用一组全局主题词，
         # 无法改善“后面内容的画面提前出现”的问题。
-        video_terms = llm.generate_terms(
-            video_subject=params.video_subject,
-            video_script=utils.remove_pause_tags(video_script),
-            amount=8 if params.match_materials_to_script else 5,
-            match_script_order=params.match_materials_to_script,
-        )
+        if params.video_source == "gemini_image":
+            # 每张生成图片只覆盖一个片段时长，且图片本身就是按描述"画"出来的：
+            # 需要足够数量、按叙事顺序排列的完整画面描述，而不是 1-3 个词的
+            # 库存搜索词。按约 2.5 词/秒估算配音时长来决定画面数量。
+            clean_script = utils.remove_pause_tags(video_script)
+            estimated_seconds = len(clean_script.split()) / 2.5
+            clip_seconds = max(int(params.video_clip_duration or 5), 1)
+            video_terms = llm.generate_terms(
+                video_subject=params.video_subject,
+                video_script=clean_script,
+                amount=min(max(math.ceil(estimated_seconds / clip_seconds) + 1, 6), 40),
+                match_script_order=True,
+                term_style="scene",
+            )
+        else:
+            video_terms = llm.generate_terms(
+                video_subject=params.video_subject,
+                video_script=utils.remove_pause_tags(video_script),
+                amount=8 if params.match_materials_to_script else 5,
+                match_script_order=params.match_materials_to_script,
+            )
     else:
         if isinstance(video_terms, str):
             video_terms = [term.strip() for term in re.split(r"[,，]", video_terms)]
@@ -1424,6 +1439,11 @@ def _run_pipeline(
     logger.info(f"start task: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
 
+    if params.video_source == "gemini_image":
+        # 每张生成图片对应一段按叙事顺序描述的场景，随机拼接会让画面和旁白
+        # 错位，因此该素材源始终按脚本顺序生成、下载和拼接。
+        params.match_materials_to_script = True
+
     if (
         stop_at in {"materials", "video"}
         and params.video_source == "volcengine_seedance"
@@ -1481,6 +1501,19 @@ def _run_pipeline(
             "OpenAI image source requires openai_image_base_url and "
             "openai_image_model in config.toml (openai_image_api_keys is "
             "optional for local gateways that need no auth)",
+        )
+
+    if (
+        stop_at in {"materials", "video"}
+        and params.video_source == "gemini_image"
+        and not material.is_gemini_image_enabled(
+            config.snapshot_config_with_pending(config.app)
+        )
+    ):
+        return _mark_task_failed(
+            task_id,
+            "preflight",
+            "Gemini image source requires gemini_api_key in config.toml",
         )
 
     # 只有完整成片流程需要视频配乐供应商。尽早阻止缺少 Key 的完整任务，避免

@@ -385,6 +385,8 @@
     "Confirm Volcano Engine Seedance Charge Help": "Seedance 클립은 하나씩 제출되며 내레이션 길이를 채우면 중단됩니다. Ark는 제출된 각 생성 작업에 요금을 부과합니다.",
     "Confirm Volcano Engine Seedance Charge Required": "영상을 생성하기 전에 Volcano Engine Seedance 생성 요금을 확인해 주세요.",
     "OpenAI Compatible Text-to-Image": "OpenAI 호환 텍스트-이미지 생성",
+    "Gemini Text-to-Image": "Gemini 텍스트-이미지 생성",
+    "Please Enter the Gemini API Key": "**Gemini API 키**를 입력하세요",
     "OpenAI Image Base URL": "OpenAI 호환 이미지 Base URL",
     "OpenAI Image API Key": "OpenAI 호환 이미지 API 키",
     "OpenAI Image Model": "OpenAI 호환 이미지 모델",

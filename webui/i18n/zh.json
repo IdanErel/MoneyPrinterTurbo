@@ -465,6 +465,8 @@
     "Confirm Metaso MiniMax Charge Help": "素材按脚本片段逐段提交，凑够配音所需时长后立即停止。秘塔按实际提交的生成任务结算。",
     "Confirm Metaso MiniMax Charge Required": "请确认秘塔 MiniMax H3 生成费用后再生成视频。",
     "OpenAI Compatible Text-to-Image": "OpenAI 兼容文生图",
+    "Gemini Text-to-Image": "Gemini 文生图",
+    "Please Enter the Gemini API Key": "请先填写 **Gemini API Key**",
     "OpenAI Image Base URL": "OpenAI 兼容文生图 Base URL",
     "OpenAI Image API Key": "OpenAI 兼容文生图 API 密钥",
     "OpenAI Image Model": "OpenAI 兼容文生图模型",

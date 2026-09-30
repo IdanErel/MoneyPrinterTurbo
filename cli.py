@@ -47,6 +47,7 @@ _CLI_VIDEO_SOURCES = (
     "metaso_minimax",
     "muapi",
     "openai_image",
+    "gemini_image",
     "local",
 )
 

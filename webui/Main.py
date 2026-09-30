@@ -134,7 +134,7 @@ VIDEO_SOURCE_GROUPS = {
         "wavespeed",
         "muapi",
     ),
-    "ai_image": ("openai_image",),
+    "ai_image": ("gemini_image", "openai_image"),
     "local": ("local",),
 }
 # Upload-Post 的 API Key 与发布用户分别在两个页面管理，并且发布用户名称
@@ -5183,6 +5183,7 @@ def _render_video_settings(panel, params):
                 "muapi": tr("MuAPI AI Video"),
                 "loomloom": tr("Shengsuan Cloud AI Video"),
                 "openai_image": tr("OpenAI Compatible Text-to-Image"),
+                "gemini_image": tr("Gemini Text-to-Image"),
                 "local": tr("Local file"),
             }
             saved_video_source_name = str(
@@ -7996,6 +7997,7 @@ def _render_generation_controls(
             "muapi",
             "loomloom",
             "openai_image",
+            "gemini_image",
             "local",
         ]:
             _remove_active_generation_task(task_id)
@@ -8102,6 +8104,13 @@ def _render_generation_controls(
         ):
             _remove_active_generation_task(task_id)
             st.error(tr("Please Configure the OpenAI Image Source"))
+            st.stop()
+
+        if params.video_source == "gemini_image" and not material.is_gemini_image_enabled(
+            config.snapshot_config_with_pending(config.app)
+        ):
+            _remove_active_generation_task(task_id)
+            st.error(tr("Please Enter the Gemini API Key"))
             st.stop()
 
         loomloom_video_request = None

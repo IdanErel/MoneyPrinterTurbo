@@ -570,6 +570,23 @@ class TestTaskService(unittest.TestCase):
                 self.assertEqual(failed_task["failed_stage"], "materials")
                 self.assertIn("paid image unavailable", failed_task["error"])
 
+    def test_gemini_image_source_always_follows_script_order(self):
+        """生成图片按叙事顺序描述场景，拼接必须按脚本顺序，不能随机打乱。"""
+        params = VideoParams(
+            video_subject="test",
+            video_source="gemini_image",
+            match_materials_to_script=False,
+        )
+        state = MemoryState()
+        state.update_task("gemini-image-order", progress=0)
+        with (
+            patch.object(tm.sm, "state", state),
+            patch.object(tm, "generate_script", return_value=None),
+        ):
+            tm._run_pipeline("gemini-image-order", params, stop_at="script")
+
+        self.assertTrue(params.match_materials_to_script)
+
     def test_loomloom_state_failure_does_not_abandon_paid_remote_run(self):
         """状态后端不可用时仍需等待并下载已经开始计费的远端任务。"""
         params = VideoParams(video_subject="AI 办公", video_source="loomloom")

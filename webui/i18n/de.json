@@ -393,6 +393,8 @@
     "Confirm Volcano Engine Seedance Charge Help": "Seedance-Clips werden einzeln übermittelt, bis sie die Dauer der Sprachausgabe abdecken. Ark berechnet jeden eingereichten Generierungsauftrag.",
     "Confirm Volcano Engine Seedance Charge Required": "Bitte bestätigen Sie die Kosten der Volcano Engine Seedance-Generierung, bevor Sie das Video erstellen.",
     "OpenAI Compatible Text-to-Image": "OpenAI-kompatible Text-zu-Bild-Generierung",
+    "Gemini Text-to-Image": "Gemini Text-zu-Bild-Generierung",
+    "Please Enter the Gemini API Key": "Bitte geben Sie den **Gemini API-Schlüssel** ein",
     "OpenAI Image Base URL": "OpenAI-kompatible Bild-Base-URL",
     "OpenAI Image API Key": "OpenAI-kompatibler Bild-API-Schlüssel",
     "OpenAI Image Model": "OpenAI-kompatibles Bildmodell",
