@@ -37,6 +37,7 @@ SUPPORTED_SOURCES = {
     # Keep this list aligned with ``_CLI_VIDEO_SOURCES`` in cli.py. A source that
     # the CLI accepts must not be rejected here as unsupported.
     "openai_image",
+    "gemini_image",
     "local",
 }
 VOLCENGINE_ARK_API_KEY_URL = (
@@ -424,6 +425,10 @@ def missing_config(config_path: Path, cli_args: list[str]) -> tuple[str, list[st
         for field in ("openai_image_base_url", "openai_image_model"):
             if not _has_configured_value(_plain_config_value(text, field)):
                 missing.append(field)
+    elif source == "gemini_image":
+        # 与运行时的 is_gemini_image_enabled() 一致：复用 LLM 的 gemini_api_key。
+        if not _has_configured_value(_plain_config_value(text, "gemini_api_key")):
+            missing.append("gemini_image_api_key")
     elif source != "local":
         value = _plain_config_value(text, f"{source}_api_keys")
         if not _has_configured_value(value):
@@ -444,6 +449,7 @@ def report_missing_config(provider: str, missing: list[str]) -> int:
             "ofox_api_key",
             "metaso_minimax_api_key",
             "muapi_api_key",
+            "gemini_image_api_key",
         }
         for field in missing
     ):
@@ -466,6 +472,8 @@ def report_missing_config(provider: str, missing: list[str]) -> int:
             "openai_image_base_url, openai_image_model (the API key is optional "
             "for local gateways)"
         )
+    if "gemini_image_api_key" in missing:
+        print("GEMINI_IMAGE_REQUIRED=gemini_api_key with billing enabled")
     if "pexels_api_keys" in missing:
         print(f"PEXELS_API_KEY_URL={PEXELS_API_KEY_URL}")
         print(f"PEXELS_API_KEY_HELP_URL={PEXELS_API_KEY_HELP_URL}")

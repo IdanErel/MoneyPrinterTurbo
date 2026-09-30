@@ -381,6 +381,8 @@
     "Confirm Volcano Engine Seedance Charge Help": "Клипы Seedance отправляются по одному, пока не покроют длительность озвучки. Ark взимает плату за каждую отправленную задачу генерации.",
     "Confirm Volcano Engine Seedance Charge Required": "Подтвердите стоимость генерации Volcano Engine Seedance перед созданием видео.",
     "OpenAI Compatible Text-to-Image": "Генерация текст-в-изображение, совместимая с OpenAI",
+    "Gemini Text-to-Image": "Генерация текст-в-изображение Gemini",
+    "Please Enter the Gemini API Key": "Введите **API-ключ Gemini**",
     "OpenAI Image Base URL": "Базовый URL изображений, совместимый с OpenAI",
     "OpenAI Image API Key": "API-ключ изображений, совместимый с OpenAI",
     "OpenAI Image Model": "Модель изображений, совместимая с OpenAI",

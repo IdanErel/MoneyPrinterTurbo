@@ -565,7 +565,14 @@ class TestVoiceService(unittest.TestCase):
         with patch("google.genai.Client", _FakeClient), patch.object(
             vs.config,
             "app",
-            dict(vs.config.app, gemini_api_key="test-key"),
+            {
+                **{
+                    k: v
+                    for k, v in vs.config.app.items()
+                    if k != "gemini_tts_model_name"
+                },
+                "gemini_api_key": "test-key",
+            },
         ):
             sub_maker = vs.gemini_tts(
                 text=text,

@@ -465,6 +465,8 @@
     "Confirm Metaso MiniMax Charge Help": "Clips are submitted one script segment at a time and stop once they cover the voiceover duration. Metaso bills the submitted generation tasks.",
     "Confirm Metaso MiniMax Charge Required": "Please confirm the Metaso MiniMax H3 charge before generating the video.",
     "OpenAI Compatible Text-to-Image": "OpenAI Compatible Text-to-Image",
+    "Gemini Text-to-Image": "Gemini Text-to-Image",
+    "Please Enter the Gemini API Key": "Please Enter the **Gemini API Key**",
     "OpenAI Image Base URL": "OpenAI Compatible Image Base URL",
     "OpenAI Image API Key": "OpenAI Compatible Image API Key",
     "OpenAI Image Model": "OpenAI Compatible Image Model",

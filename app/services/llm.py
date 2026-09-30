@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from time import perf_counter
 from typing import List
 
@@ -254,6 +255,68 @@ def _extract_qwen_generation_text(response) -> str:
     return _normalize_text_response(text, "qwen")
 
 
+GEMINI_RETRYABLE_STATUS_CODES = {429, 500, 503}
+GEMINI_RETRY_BACKOFF_SECONDS = (3, 8)
+
+
+def _gemini_generate_with_fallback(
+    genai,
+    *,
+    api_key,
+    http_options,
+    model_name,
+    prompt,
+    generation_config,
+    app_config=None,
+):
+    """
+    调用 Gemini，遇到 429/5xx（常见的 "high demand"）时先退避重试，仍失败再
+    依次换用 gemini_fallback_model_names 里的模型。其它错误原样抛出。
+    """
+    from google.genai import errors as genai_errors
+
+    source_config = config.app if app_config is None else app_config
+    fallbacks = source_config.get("gemini_fallback_model_names") or []
+    if isinstance(fallbacks, str):
+        fallbacks = [name.strip() for name in fallbacks.split(",")]
+    models = [model_name] + [
+        name for name in fallbacks if name and name != model_name
+    ]
+
+    last_error = None
+    for index, model in enumerate(models):
+        for attempt in range(len(GEMINI_RETRY_BACKOFF_SECONDS) + 1):
+            try:
+                # 新版 google-genai 通过统一 Client 暴露模型服务。上下文管理器
+                # 会在请求结束后关闭底层 HTTP 连接，避免频繁生成时积累连接资源。
+                with genai.Client(
+                    api_key=api_key,
+                    http_options=http_options,
+                ) as client:
+                    return client.models.generate_content(
+                        model=model,
+                        contents=prompt,
+                        config=generation_config,
+                    )
+            except genai_errors.APIError as e:
+                if getattr(e, "code", None) not in GEMINI_RETRYABLE_STATUS_CODES:
+                    raise
+                last_error = e
+                if attempt < len(GEMINI_RETRY_BACKOFF_SECONDS):
+                    delay = GEMINI_RETRY_BACKOFF_SECONDS[attempt]
+                    logger.warning(
+                        f"gemini model {model} is busy (HTTP {e.code}), "
+                        f"retrying in {delay}s"
+                    )
+                    time.sleep(delay)
+        if index + 1 < len(models):
+            logger.warning(
+                f"gemini model {model} is still unavailable, "
+                f"falling back to {models[index + 1]}"
+            )
+    raise last_error
+
+
 def _generate_response(prompt: str, app_config=None) -> str:
     try:
         # WebUI 在视频生成期间允许用户准备下一条文案。调用方可以传入提交瞬间
@@ -386,17 +449,15 @@ def _generate_response(prompt: str, app_config=None) -> str:
             )
 
             try:
-                # 新版 google-genai 通过统一 Client 暴露模型服务。上下文管理器
-                # 会在请求结束后关闭底层 HTTP 连接，避免频繁生成时积累连接资源。
-                with genai.Client(
+                response = _gemini_generate_with_fallback(
+                    genai,
                     api_key=api_key,
                     http_options=http_options,
-                ) as client:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=generation_config,
-                    )
+                    model_name=model_name,
+                    prompt=prompt,
+                    generation_config=generation_config,
+                    app_config=runtime_app_config,
+                )
                 generated_text = response.text
             except (AttributeError, IndexError, ValueError) as e:
                 logger.warning(f"gemini returned invalid response content: {str(e)}")
@@ -845,6 +906,7 @@ def generate_terms(
     amount: int = 5,
     match_script_order: bool = False,
     app_config=None,
+    term_style: str = "stock",
 ) -> List[str]:
     video_script = utils.remove_pause_tags(video_script or "").strip()
     if match_script_order:
@@ -875,6 +937,21 @@ def generate_terms(
             '"search term 4", "search term 5"]'
         )
 
+    if term_style == "scene":
+        # 文生图素材源直接按描述生成画面，需要具体、可视化的场景描述；
+        # 1-3 个词的库存搜索词会生成与叙事无关的泛化图片。
+        goal = goal.replace("stock-video search terms", "image scene descriptions")
+        length_rule = (
+            "2. each term is a concrete visual scene description of 6-15 words "
+            "(who or what is shown, where, and the era), naming the real companies, "
+            "products or places from the script when relevant."
+        )
+    else:
+        length_rule = (
+            "2. each search term should consist of 1-3 words, always add the main "
+            "subject of the video."
+        )
+
     prompt = f"""
 # Role: Video Search Terms Generator
 
@@ -883,7 +960,7 @@ def generate_terms(
 
 ## Constrains:
 1. the search terms are to be returned as a json-array of strings.
-2. each search term should consist of 1-3 words, always add the main subject of the video.
+{length_rule}
 3. you must only return the json-array of strings. you must not return anything else. you must not return the script.
 4. the search terms must be related to the subject of the video.
 5. reply with english search terms only.
