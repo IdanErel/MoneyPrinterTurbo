@@ -1439,6 +1439,11 @@ def _run_pipeline(
     logger.info(f"start task: {task_id}, stop_at: {stop_at}")
     sm.state.update_task(task_id, state=const.TASK_STATE_PROCESSING, progress=5)
 
+    if params.video_source == "gemini_image":
+        # 每张生成图片对应一段按叙事顺序描述的场景，随机拼接会让画面和旁白
+        # 错位，因此该素材源始终按脚本顺序生成、下载和拼接。
+        params.match_materials_to_script = True
+
     if (
         stop_at in {"materials", "video"}
         and params.video_source == "volcengine_seedance"
